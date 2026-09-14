@@ -1,0 +1,46 @@
+=== Prueba funcional del módulo de Pedidos (PHP + PDO, arquitectura MVC) ===
+Desplegado con el servidor embebido de PHP (php -S), contra la base de datos
+real gestion_pedidos.
+
+--- 1) GET /pedidos: formulario + lista vacía ---
+$ curl http://localhost:8001/pedidos
+(200 OK, muestra el formulario y "Todavía no hay pedidos registrados")
+
+--- 2) POST /pedidos: crear un pedido (formulario -> PedidoControlador::crear) ---
+$ curl -i -X POST http://localhost:8001/pedidos -d "id_cliente=1" -d "id_usuario=1" -d "total=45000"
+HTTP/1.1 302 Found
+Location: /pedidos?creado=1
+(el controlador validó los datos, insertó el pedido por PDO con estado inicial
+"pendiente", y aplicó el patrón Post/Redirect/Get)
+
+--- 3) POST /pedidos/estado: actualizar el estado del pedido ---
+$ curl -i -X POST http://localhost:8001/pedidos/estado -d "id_pedido=1" -d "estado=en_preparacion"
+HTTP/1.1 302 Found
+Location: /pedidos?actualizado=1
+
+--- 4) Verificación directa en la base de datos ---
+$ mysql -u root gestion_pedidos -e "SELECT id_pedido, id_cliente, id_usuario, estado, total FROM pedidos;"
+id_pedido  id_cliente  id_usuario  estado          total
+1          1           1           en_preparacion  45000.00
+
+--- 5) Segundo pedido, creado desde el navegador real (Playwright), seleccionando
+       cliente y vendedor en los combos y enviando el formulario ---
+Resultado: mensaje "Pedido creado correctamente.", con el nuevo pedido listado
+(estado "Pendiente"), y el listado ordenado del más reciente al más antiguo.
+Capturas: capturas/ev20_shot_creado.png y capturas/ev20_shot_listado.png
+
+--- Bug real encontrado y corregido durante la prueba ---
+El usuario "Manuela Cañas López" (vendedor), insertado inicialmente desde la
+línea de comandos de MySQL sin forzar el charset utf8mb4 del cliente, quedó
+almacenado con la "ñ" doblemente codificada (mojibake), visible en la
+captura inicial ("CaÃ±as LÃ³pez"). Se verificó con HEX(nombre) que los bytes
+almacenados no correspondían a UTF-8 válido de un solo nivel, y se corrigió
+actualizando el registro con:
+  mysql --default-character-set=utf8mb4 -u root gestion_pedidos \
+    -e "UPDATE usuarios SET nombre='Manuela Cañas López' WHERE id_usuario=1;"
+Tras la corrección, el nombre se muestra correctamente en la aplicación
+(ver capturas/ev20_shot_listado.png).
+
+=== Conclusión: el enrutador (front controller), el controlador y el modelo/
+repositorio (PDO) funcionan correctamente end-to-end contra la base de datos
+real, incluyendo la creación de pedidos y el cambio de su estado. ===
